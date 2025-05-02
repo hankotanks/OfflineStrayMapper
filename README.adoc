@@ -1,0 +1,9 @@
+[source,sh]
+----
+mkdir build
+cd build
+cmake ..
+cd ..
+bear -- make -C build
+./build/StrayMapper ../30ffcca681
+----
