@@ -13,12 +13,8 @@
 namespace rtabmap {
     class CameraRGBDImagesWrapper : public CameraRGBDImages {
     public:
-        CameraRGBDImagesWrapper(std::tuple<std::string, std::string, float> params) :
-            CameraRGBDImages(
-                std::get<0>(params), 
-                std::get<1>(params), 
-                std::get<2>(params)
-            ) { /*  */ }
+        CameraRGBDImagesWrapper(std::tuple<std::string, std::string, float> p) :
+            CameraRGBDImages(std::get<0>(p), std::get<1>(p), std::get<2>(p)) { /*  */ }
         virtual bool init(std::string& calibrationFolder, std::string& cameraName) {
             return CameraRGBDImages::init(calibrationFolder, cameraName);
         }
@@ -249,18 +245,6 @@ namespace rtabmap {
             lazycsv::parser<> parser { root + "/imu.csv" };
             std::vector<IMUEvent> sensorData;
 
-            // for(auto i = 0; i < StrayCamera::queryFrameCount(root); ++i) {
-            //     sensorData.push_back(IMU());
-            // }
-
-            /*
-            const cv::Vec3d & angularVelocity,
-            const cv::Mat & angularVelocityCovariance,
-            const cv::Vec3d & linearAcceleration,
-            const cv::Mat & linearAccelerationCovariance,
-            const Transform & localTransform = Transform::getIdentity()) :
-            */
-            
             float ts, lx, ly, lz, ax, ay, az;
             char* term;
             for(const auto row : parser) {
