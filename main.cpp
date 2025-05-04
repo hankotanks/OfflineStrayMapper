@@ -16,7 +16,7 @@ int main(int argc, char * argv[]) {
 		return 1;
 	}
 	
-	StrayCamera camera(argv[1]);
+	StrayCamera camera(argv[1], false);
 
 	if(camera.init()) {
 		Rtabmap rtabmap;
@@ -27,31 +27,38 @@ int main(int argc, char * argv[]) {
 		mapBuilder.show();
 		QApplication::processEvents();
 
-		SensorData data = camera.takeImage();
+		SensorData cameraData = camera.takeImage();
+		SensorData sensorData;
 		int cameraIteration = 0;
-		int odometryIteration = 0;
-		while(data.isValid() && mapBuilder.isVisible()) {
+		int sensorIteration = 0;
+		// int odometryIteration = 0;
+		while(cameraData.isValid() && mapBuilder.isVisible()) {
 			if(++cameraIteration < camera.getFrameCount()) {
-				Transform pose = camera.getPose(data.id());
-				if(odometryIteration++) {
-					if(rtabmap.process(data, pose)) {
-						mapBuilder.processStatistics(rtabmap.getStatistics());
-						if(rtabmap.getLoopClosureId() > 0) {
-							printf("Loop closure detected!\n");
-						}
+				Transform pose = camera.getPose(cameraData.id());
+				if(rtabmap.process(cameraData, pose)) {
+					mapBuilder.processStatistics(rtabmap.getStatistics());
+					if(rtabmap.getLoopClosureId() > 0) {
+						printf("Loop closure detected!\n");
 					}
 				}
 
 				OdometryInfo info;
-				mapBuilder.processOdometry(data, pose, info);
+				mapBuilder.processOdometry(cameraData, pose, info);
+
+				for(; camera.getIMU(sensorIteration).getStamp() < cameraData.stamp(); ++sensorIteration) {
+					IMUEvent sensorEvent = camera.getIMU(sensorIteration);
+					sensorData = SensorData(sensorEvent.getData(), sensorEvent.getStamp());
+					rtabmap.process(sensorData, pose);
+				}
 			}
+
+			cameraData = camera.takeImage();
 
 			QApplication::processEvents();
 			while(mapBuilder.isPaused() && mapBuilder.isVisible()) {
 				uSleep(100);
 				QApplication::processEvents();
 			}
-			data = camera.takeImage();
 		}
 
 		if(mapBuilder.isVisible()) {

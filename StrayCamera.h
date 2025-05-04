@@ -11,43 +11,53 @@
 #include "lazycsv.hpp"
 
 namespace rtabmap {
-    class CameraRGBDImagesWrapper : public rtabmap::CameraRGBDImages {
+    class CameraRGBDImagesWrapper : public CameraRGBDImages {
     public:
         CameraRGBDImagesWrapper(std::tuple<std::string, std::string, float> params) :
-            rtabmap::CameraRGBDImages(
+            CameraRGBDImages(
                 std::get<0>(params), 
                 std::get<1>(params), 
                 std::get<2>(params)
             ) { /*  */ }
         virtual bool init(std::string& calibrationFolder, std::string& cameraName) {
-            return rtabmap::CameraRGBDImages::init(calibrationFolder, cameraName);
+            return CameraRGBDImages::init(calibrationFolder, cameraName);
         }
     };
 
     class StrayCamera : public CameraRGBDImagesWrapper {
     private:
+        bool removeTemp_;
         std::string root_;
         std::string calibrationFolder_;
         std::string cameraName_;
-        std::vector<rtabmap::Transform> transforms_;
         unsigned int frameCount_;
+        std::vector<float> stamps_;
+        std::vector<Transform> transforms_;
+        std::vector<IMUEvent> sensorData_;
     public:
-        StrayCamera(const std::string& root) : CameraRGBDImagesWrapper(constructor(root)) {
+        StrayCamera(const std::string& root, const bool removeTemp = true) : CameraRGBDImagesWrapper(constructor(root)) {
+            this->removeTemp_ = removeTemp;
             this->root_ = root;
             if (!this->root_.empty() && this->root_.back() == '/') this->root_.pop_back();
             const auto [width, height] = StrayCamera::imageDimensions(this->root_);
             const auto [calibrationFolder, cameraName] = StrayCamera::writeCameraCalibration(this->root_, width, height);
             this->calibrationFolder_ = calibrationFolder;
             this->cameraName_ = cameraName;
-            this->transforms_ = StrayCamera::parseOdometry(root);
-            // this->transforms_.pop_back();
             this->frameCount_ = StrayCamera::queryFrameCount(root);
+            const auto [stamps, transforms] = StrayCamera::parseOdometry(root);
+            // std::cout << stamps.size() << ", " << transforms.size() << std::endl;
+            this->stamps_ = stamps;
+            this->transforms_ = transforms;
+            const std::vector<float> stampsTemp(stamps.begin(), stamps.end() - 1);
+            const std::string pathTimestamps = StrayCamera::writeTimestamps(this->root_, stampsTemp);
+            this->sensorData_ = StrayCamera::parseIMU(root);
+            CameraImages::setTimestamps(false, pathTimestamps, false);
         }
 
         ~StrayCamera() {
             const std::string temp = StrayCamera::pathOut(this->root_);
 
-            if(std::filesystem::exists(temp)) std::filesystem::remove_all(temp);
+            if(std::filesystem::exists(temp) && this->removeTemp_) std::filesystem::remove_all(temp);
         }
 
         virtual bool init() {
@@ -58,9 +68,16 @@ namespace rtabmap {
             return this->frameCount_;
         }
 
-        rtabmap::Transform getPose(int id) {
-            return this->transforms_[id];
+        Transform getPose(int id) {
+            Transform pose = this->transforms_[id];
+
+            return pose;
         }
+
+        IMUEvent getIMU(int id) {
+            return this->sensorData_[id];
+        }
+
     private:
         static std::string pathOut(const std::string& root) {
             return root + "/temp";
@@ -206,39 +223,76 @@ namespace rtabmap {
             return std::pair<std::string, std::string>(calibrationFolder, cameraName);
         }
 
-        static std::vector<rtabmap::Transform> parseOdometry(const std::string& root) {
+        static std::pair<std::vector<float>, std::vector<Transform>> parseOdometry(const std::string& root) {
             lazycsv::parser<> parser { root + "/odometry.csv" };
-            std::vector<rtabmap::Transform> odom;
-            int firstRow = 1;
+            std::vector<Transform> odom;
+            std::vector<float> stamps;
             char* term;
-            float x, y, z, qx, qy, qz, qw;
+            float tx, ty, tz, qx, qy, qz, qw; // curr
             for(const auto row : parser) {
-                const auto raw = row.cells(2, 3, 4, 5, 6, 7, 8);
-                float tx, ty, tz;
-                tx = std::strtof(raw[0].raw().data(), &term);
-                ty = std::strtof(raw[1].raw().data(), &term);
-                tz = std::strtof(raw[2].raw().data(), &term);
-                if(!firstRow) {
-                    tx -= x;
-                    x += tx;
-                    ty -= y;
-                    y += ty;
-                    tz -= z;
-                    z += tz;
-                } else {
-                    firstRow = 0;
-                    x = tx;
-                    y = ty;
-                    z = tz;
-                }
-                qx = std::strtof(raw[3].raw().data(), &term);
-                qy = std::strtof(raw[4].raw().data(), &term);
-                qz = std::strtof(raw[5].raw().data(), &term);
-                qw = std::strtof(raw[6].raw().data(), &term);
-                odom.push_back(rtabmap::Transform(tx, ty, tz, qx, qy, qz, qw));
+                const auto raw = row.cells(0, 2, 3, 4, 5, 6, 7, 8);
+                stamps.push_back(std::strtof(raw[0].raw().data(), &term));
+                tx = std::strtof(raw[1].raw().data(), &term);
+                ty = std::strtof(raw[2].raw().data(), &term);
+                tz = std::strtof(raw[3].raw().data(), &term);
+                qx = std::strtof(raw[4].raw().data(), &term);
+                qy = std::strtof(raw[5].raw().data(), &term);
+                qz = std::strtof(raw[6].raw().data(), &term);
+                qw = std::strtof(raw[7].raw().data(), &term);
+                odom.push_back(Transform(tx, ty, tz, qx, qy, qz, qw));
             }
         
-            return odom;
+            return std::pair<std::vector<float>, std::vector<Transform>>(stamps, odom);
+        }
+
+        static std::vector<IMUEvent> parseIMU(const std::string& root) {
+            lazycsv::parser<> parser { root + "/imu.csv" };
+            std::vector<IMUEvent> sensorData;
+
+            // for(auto i = 0; i < StrayCamera::queryFrameCount(root); ++i) {
+            //     sensorData.push_back(IMU());
+            // }
+
+            /*
+            const cv::Vec3d & angularVelocity,
+            const cv::Mat & angularVelocityCovariance,
+            const cv::Vec3d & linearAcceleration,
+            const cv::Mat & linearAccelerationCovariance,
+            const Transform & localTransform = Transform::getIdentity()) :
+            */
+            
+            float ts, lx, ly, lz, ax, ay, az;
+            char* term;
+            for(const auto row : parser) {
+                const auto raw = row.cells(0, 1, 2, 3, 4, 5, 6);
+                ts = std::strtof(raw[0].raw().data(), &term);
+                lx = std::strtof(raw[1].raw().data(), &term);
+                ly = std::strtof(raw[2].raw().data(), &term);
+                lz = std::strtof(raw[3].raw().data(), &term);
+                ax = std::strtof(raw[4].raw().data(), &term);
+                ay = std::strtof(raw[5].raw().data(), &term);
+                az = std::strtof(raw[6].raw().data(), &term);
+                IMU temp(
+                    cv::Vec3d(ax, ay, az),
+                    cv::Mat::eye(3, 3, CV_64F),
+                    cv::Vec3d(lx, ly, lz),
+                    cv::Mat::eye(3, 3, CV_64F)
+                );
+                sensorData.push_back(IMUEvent(temp, (double) ts));
+            }
+
+            return sensorData;
+        }
+
+        static std::string writeTimestamps(const std::string& root, const std::vector<float>& stamps) {
+            const std::string pathTimestamps = StrayCamera::pathOut(root) + "/timestamps.txt";
+            std::ofstream out(pathTimestamps);
+
+            for(auto i = 0; i < stamps.size(); ++i) out << std::fixed << std::setprecision(6) << stamps[i] << std::endl;
+
+            out.close();
+
+            return pathTimestamps;
         }
 
         static std::tuple<std::string, std::string, float> constructor(const std::string& root) {
@@ -246,18 +300,16 @@ namespace rtabmap {
             if (!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
             
             const std::string temp = StrayCamera::pathOut(rootFmt);
-            if(std::filesystem::exists(temp)) {
-                std::filesystem::remove_all(temp);
+            if(!std::filesystem::exists(temp)) {
                 std::filesystem::create_directories(temp);
-            }
+                const unsigned int frameCount = StrayCamera::splitRGBImages(root);
+                if(frameCount == 0) {
+                    UERROR("Failed to generate RGB images.");
+                    // TODO: Error handling
+                }
 
-            const unsigned int frameCount = StrayCamera::splitRGBImages(root);
-            if(frameCount == 0) {
-                UERROR("Failed to generate RGB images.");
-                // TODO: Error handling
+                StrayCamera::copyDepthToOutput(root, frameCount);
             }
-
-            StrayCamera::copyDepthToOutput(root, frameCount);
 
             return std::tuple<std::string, std::string, float>(
                 StrayCamera::pathRGBImages(root), 
