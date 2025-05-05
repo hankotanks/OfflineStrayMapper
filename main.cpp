@@ -3,8 +3,11 @@
 // #define POINT_CLOUD_VOXEL_SIZE 0.5f
 // #define POINT_CLOUD_OUT_PATH "../out.pcd"
 
+//#define SLAM_DISABLED
+
 #include <rtabmap/core/Rtabmap.h>
 #include <rtabmap/utilite/UThread.h>
+#include <rtabmap/core/Odometry.h>
 #ifdef SAVE_POINT_CLOUD
 #include <pcl/io/pcd_io.h>
 #include <rtabmap/core/util3d.h>
@@ -32,13 +35,18 @@ int main(int argc, char * argv[]) {
 #endif
 
 	ParametersMap params;
-	params.insert(ParametersPair(Parameters::kMemIncrementalMemory(), "true"));
+	params.insert(ParametersPair(Parameters::kMemIncrementalMemory(), "false"));
 	params.insert(ParametersPair(Parameters::kOdomGuessMotion(), "true"));
 	params.insert(ParametersPair(Parameters::kOdomStrategy(), "0"));
 	
 	StrayCamera camera(argv[1], false);
 
 	if(camera.init()) {
+#ifndef SLAM_DISABLED
+		Odometry* odom = Odometry::create();
+#endif
+		OdometryInfo info;
+
 		Rtabmap rtabmap;
 		rtabmap.init(params);
 
@@ -48,33 +56,26 @@ int main(int argc, char * argv[]) {
 		QApplication::processEvents();
 
 		SensorData cameraData = camera.takeImage();
-		SensorData sensorData;
 		int cameraIteration = 0;
-		int sensorIteration = 0;
+		int odometryIteration = 0;
 		while(cameraData.isValid() && mapBuilder.isVisible()) {
 			if(++cameraIteration < camera.getFrameCount()) {
+#ifndef SLAM_DISABLED
+				Transform pose = odom->process(cameraData, &info);
+#else
 				Transform pose = camera.getPose(cameraData.id());
-
-				for(; camera.getIMU(sensorIteration).getStamp() < cameraData.stamp(); ++sensorIteration) {
-					IMUEvent sensorEvent = camera.getIMU(sensorIteration);
-					sensorData = SensorData(sensorEvent.getData(), sensorEvent.getStamp());
-					rtabmap.process(sensorData, pose);
-				}
-
+#endif
 				if(rtabmap.process(cameraData, pose)) {
 					mapBuilder.processStatistics(rtabmap.getStatistics());
-					if(rtabmap.getLoopClosureId() > 0) {
-						printf("Loop closure detected!\n");
-					}
+					if(rtabmap.getLoopClosureId() > 0) printf("Loop closure detected!\n");
 				}
+
+				mapBuilder.processOdometry(cameraData, pose, info);
 
 #ifdef SAVE_POINT_CLOUD
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp = util3d::cloudsRGBFromSensorData(cameraData)[0];
 				(*cloud) += *util3d::transformPointCloud(temp, pose);
 #endif
-
-				OdometryInfo info;
-				mapBuilder.processOdometry(cameraData, pose, info);
 			}
 
 			cameraData = camera.takeImage();
@@ -85,6 +86,9 @@ int main(int argc, char * argv[]) {
 				QApplication::processEvents();
 			}
 		}
+#ifndef SLAM_DISABLED
+		delete odom;
+#endif
 
 		if(mapBuilder.isVisible()) {
 			app.exec();

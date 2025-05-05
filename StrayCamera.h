@@ -3,6 +3,7 @@
 
 #include <string>
 #include <filesystem>
+#include <limits>
 #include <rtabmap/core/Camera.h>
 #include <rtabmap/core/camera/CameraRGBDImages.h>
 #include <rtabmap/core/Transform.h>
@@ -23,30 +24,37 @@ namespace rtabmap {
     class StrayCamera : public CameraRGBDImagesWrapper {
     private:
         bool removeTemp_;
-        std::string root_;
-        std::string calibrationFolder_;
-        std::string cameraName_;
+        std::string root_, calibrationFolder_, cameraName_;
         unsigned int frameCount_;
         std::vector<float> stamps_;
-        std::vector<Transform> transforms_;
+        std::vector<Transform> groundTruthPoses_;
         std::vector<IMUEvent> sensorData_;
     public:
         StrayCamera(const std::string& root, const bool removeTemp = true) : CameraRGBDImagesWrapper(constructor(root)) {
             this->removeTemp_ = removeTemp;
+            
+            // set stray root path
             this->root_ = root;
             if (!this->root_.empty() && this->root_.back() == '/') this->root_.pop_back();
+            
+            // build camera calibration
             const auto [width, height] = StrayCamera::imageDimensions(this->root_);
             const auto [calibrationFolder, cameraName] = StrayCamera::writeCameraCalibration(this->root_, width, height);
             this->calibrationFolder_ = calibrationFolder;
             this->cameraName_ = cameraName;
+            
+            // set frame count
             this->frameCount_ = StrayCamera::queryFrameCount(root);
-            const auto [stamps, transforms] = StrayCamera::parseOdometry(root);
-            // std::cout << stamps.size() << ", " << transforms.size() << std::endl;
+
+            // parse odometry (only for validation)
+            const auto [stamps, groundTruthPoses] = StrayCamera::parseOdometry(root);
             this->stamps_ = stamps;
-            this->transforms_ = transforms;
-            const std::vector<float> stampsTemp(stamps.begin(), stamps.end() - 1);
+            this->groundTruthPoses_ = groundTruthPoses;
+            this->sensorData_ = StrayCamera::parseIMU(root, this->stamps_);
+
+            // configure timestamps
+            const std::vector<float> stampsTemp(this->stamps_.begin(), this->stamps_.end() - 1);
             const std::string pathTimestamps = StrayCamera::writeTimestamps(this->root_, stampsTemp);
-            this->sensorData_ = StrayCamera::parseIMU(root);
             CameraImages::setTimestamps(false, pathTimestamps, false);
         }
 
@@ -65,13 +73,16 @@ namespace rtabmap {
         }
 
         Transform getPose(int id) {
-            Transform pose = this->transforms_[id];
-
-            return pose;
+            return this->groundTruthPoses_[id];
         }
 
-        IMUEvent getIMU(int id) {
-            return this->sensorData_[id];
+        SensorData takeImage() {
+            SensorData data = Camera::takeImage();
+
+            IMUEvent event = this->sensorData_[data.id()];
+            data.setIMU(event.getData());
+
+            return data;
         }
 
     private:
@@ -241,28 +252,35 @@ namespace rtabmap {
             return std::pair<std::vector<float>, std::vector<Transform>>(stamps, odom);
         }
 
-        static std::vector<IMUEvent> parseIMU(const std::string& root) {
+        static std::vector<IMUEvent> parseIMU(const std::string& root, const std::vector<float>& stamps) {
             lazycsv::parser<> parser { root + "/imu.csv" };
             std::vector<IMUEvent> sensorData;
 
+            int stampIdx = 0;
             float ts, lx, ly, lz, ax, ay, az;
+            float t0 = std::numeric_limits<float>::max() * -1.f;
             char* term;
             for(const auto row : parser) {
+                if(stampIdx >= stamps.size()) break;
                 const auto raw = row.cells(0, 1, 2, 3, 4, 5, 6);
                 ts = std::strtof(raw[0].raw().data(), &term);
-                lx = std::strtof(raw[1].raw().data(), &term);
-                ly = std::strtof(raw[2].raw().data(), &term);
-                lz = std::strtof(raw[3].raw().data(), &term);
-                ax = std::strtof(raw[4].raw().data(), &term);
-                ay = std::strtof(raw[5].raw().data(), &term);
-                az = std::strtof(raw[6].raw().data(), &term);
-                IMU temp(
-                    cv::Vec3d(ax, ay, az),
-                    cv::Mat::eye(3, 3, CV_64F),
-                    cv::Vec3d(lx, ly, lz),
-                    cv::Mat::eye(3, 3, CV_64F)
-                );
-                sensorData.push_back(IMUEvent(temp, (double) ts));
+                if(stamps[stampIdx] < ts) {
+                    lx = std::strtof(raw[1].raw().data(), &term);
+                    ly = std::strtof(raw[2].raw().data(), &term);
+                    lz = std::strtof(raw[3].raw().data(), &term);
+                    ax = std::strtof(raw[4].raw().data(), &term);
+                    ay = std::strtof(raw[5].raw().data(), &term);
+                    az = std::strtof(raw[6].raw().data(), &term);
+                    IMU temp(
+                        cv::Vec3d(ax, ay, az),
+                        cv::Mat::eye(3, 3, CV_64F),
+                        cv::Vec3d(lx, ly, lz),
+                        cv::Mat::eye(3, 3, CV_64F)
+                    );
+                    sensorData.push_back(IMUEvent(temp, (double) t0));
+                    stampIdx++;
+                }
+                t0 = ts;
             }
 
             return sensorData;
