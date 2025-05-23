@@ -8,8 +8,7 @@ git submodule update --init --recursive
 mkdir build
 cd build
 cmake ..
-cd ..
-bear -- make -C build
+make
 ----
 
 .Usage
