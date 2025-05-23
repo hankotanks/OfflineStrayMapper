@@ -1,9 +1,19 @@
+.Requirements
+* Qt5
+
+.Building
 [source,sh]
 ----
+git submodule update --init --recursive
 mkdir build
 cd build
 cmake ..
 cd ..
 bear -- make -C build
-./build/StrayMapper ../30ffcca681
+----
+
+.Usage
+[source,sh]
+----
+./build/StrayMapper <path-to-unzipped-stray-data>
 ----
