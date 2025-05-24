@@ -1,7 +1,9 @@
 #ifndef CAMERA_WRAPPER_H
 #define CAMERA_WRAPPER_H
 
+#include <optional>
 #include <string>
+#include <fstream>
 #include <filesystem>
 #include <limits>
 #include <rtabmap/core/Camera.h>
@@ -9,7 +11,7 @@
 #include <rtabmap/core/Transform.h>
 #include <opencv2/opencv.hpp>
 
-#include "lazycsv.hpp"
+#include "lazycsv.h"
 
 namespace rtabmap {
     class CameraRGBDImagesWrapper : public CameraRGBDImages {
@@ -25,21 +27,31 @@ namespace rtabmap {
     private:
         bool removeTemp_;
         std::string root_, calibrationFolder_, cameraName_;
+        std::optional<std::string> out_;
         unsigned int frameCount_;
         std::vector<float> stamps_;
         std::vector<Transform> groundTruthPoses_;
         std::vector<IMUEvent> sensorData_;
     public:
-        StrayCamera(const std::string& root, const bool removeTemp = true) : CameraRGBDImagesWrapper(constructor(root)) {
+        StrayCamera(
+            const std::string& root, 
+            const std::optional<std::string>& out = {}, 
+            const bool removeTemp = true
+        ) : CameraRGBDImagesWrapper(constructor(root, out)) {
             this->removeTemp_ = removeTemp;
             
             // set stray root path
             this->root_ = root;
-            if (!this->root_.empty() && this->root_.back() == '/') this->root_.pop_back();
+            if(!this->root_.empty() && this->root_.back() == '/') this->root_.pop_back();
+            
+            // set output path (if one was provided)
+            this->out_ = out;
+            if(this->out_ && !(*(this->out_)).empty() && (*(this->out_)).back() == '/') 
+                (*(this->out_)).pop_back();
             
             // build camera calibration
-            const auto [width, height] = StrayCamera::imageDimensions(this->root_);
-            const auto [calibrationFolder, cameraName] = StrayCamera::writeCameraCalibration(this->root_, width, height);
+            const auto [width, height] = StrayCamera::imageDimensions(this->root_, this->out_);
+            const auto [calibrationFolder, cameraName] = StrayCamera::writeCameraCalibration(this->root_, this->out_, width, height);
             this->calibrationFolder_ = calibrationFolder;
             this->cameraName_ = cameraName;
             
@@ -54,12 +66,12 @@ namespace rtabmap {
 
             // configure timestamps
             const std::vector<float> stampsTemp(this->stamps_.begin(), this->stamps_.end() - 1);
-            const std::string pathTimestamps = StrayCamera::writeTimestamps(this->root_, stampsTemp);
+            const std::string pathTimestamps = StrayCamera::writeTimestamps(this->root_, this->out_, stampsTemp);
             CameraImages::setTimestamps(false, pathTimestamps, false);
         }
 
         ~StrayCamera() {
-            const std::string temp = StrayCamera::pathOut(this->root_);
+            const std::string temp = StrayCamera::pathOut(this->root_, this->out_);
 
             if(std::filesystem::exists(temp) && this->removeTemp_) std::filesystem::remove_all(temp);
         }
@@ -86,16 +98,16 @@ namespace rtabmap {
         }
 
     private:
-        static std::string pathOut(const std::string& root) {
-            return root + "/temp";
+        static std::string pathOut(const std::string& root, const std::optional<std::string>& out) {
+            return out ? (*out) + "/temp" : root + "/temp";
         }
 
-        static std::string pathRGBImages(const std::string& root) {
-            return StrayCamera::pathOut(root) + "/rgb";
+        static std::string pathRGBImages(const std::string& root, const std::optional<std::string>& out) {
+            return StrayCamera::pathOut(root, out) + "/rgb";
         }
 
-        static std::string pathDepthImages(const std::string& root) {
-            return StrayCamera::pathOut(root) + "/depth";
+        static std::string pathDepthImages(const std::string& root, const std::optional<std::string>& out) {
+            return StrayCamera::pathOut(root, out) + "/depth";
         }
 
         static unsigned int queryFrameCount(const std::string& root) {
@@ -109,8 +121,8 @@ namespace rtabmap {
             return (unsigned int) frameCount;
         }
 
-        static unsigned int splitRGBImages(const std::string& root) {
-            const std::string path = StrayCamera::pathRGBImages(root);
+        static unsigned int splitRGBImages(const std::string& root, const std::optional<std::string>& out) {
+            const std::string path = StrayCamera::pathRGBImages(root, out);
             std::filesystem::create_directories(path);
         
             cv::VideoCapture cap(root + "/rgb.mp4");
@@ -129,8 +141,12 @@ namespace rtabmap {
             return frameCount;
         }
 
-        static void copyDepthToOutput(const std::string& root, unsigned int frameCount) {
-            const std::string path = pathDepthImages(root);
+        static void copyDepthToOutput(
+            const std::string& root, 
+            const std::optional<std::string>& out, 
+            unsigned int frameCount
+        ) {
+            const std::string path = pathDepthImages(root, out);
             std::filesystem::create_directories(path);
         
             for(auto i = 0; i < frameCount; ++i) {
@@ -144,9 +160,9 @@ namespace rtabmap {
             }
         }
 
-        static float scaleFactor(const std::string& root) {
-            cv::Mat color = cv::imread(StrayCamera::pathRGBImages(root) + "/000000.png");
-            cv::Mat depth = cv::imread(StrayCamera::pathDepthImages(root) + "/000000.png");
+        static float scaleFactor(const std::string& root, const std::optional<std::string>& out) {
+            cv::Mat color = cv::imread(StrayCamera::pathRGBImages(root, out) + "/000000.png");
+            cv::Mat depth = cv::imread(StrayCamera::pathDepthImages(root, out) + "/000000.png");
         
             const float x = (float) color.cols / (float) depth.cols;
             const float y = (float) color.rows / (float) depth.rows;
@@ -156,8 +172,11 @@ namespace rtabmap {
             return x;
         }
 
-        static std::pair<unsigned int, unsigned int> imageDimensions(const std::string& root) {
-            cv::Mat color = cv::imread(StrayCamera::pathRGBImages(root) + "/000000.png");
+        static std::pair<unsigned int, unsigned int> imageDimensions(
+            const std::string& root, 
+            const std::optional<std::string>& out
+        ) {
+            cv::Mat color = cv::imread(StrayCamera::pathRGBImages(root, out) + "/000000.png");
 
             unsigned int cols, rows;
             cols = (unsigned int) color.cols;
@@ -168,10 +187,11 @@ namespace rtabmap {
 
         static std::pair<std::string, std::string> writeCameraCalibration(
             const std::string& root, 
+            const std::optional<std::string>& out,
             unsigned int width, 
             unsigned int height
         ) {
-            const std::string calibrationFolder = StrayCamera::pathOut(root);
+            const std::string calibrationFolder = StrayCamera::pathOut(root, out);
             const std::string cameraName = "iphone16pro";
         
             lazycsv::parser<lazycsv::mmap_source,
@@ -286,37 +306,48 @@ namespace rtabmap {
             return sensorData;
         }
 
-        static std::string writeTimestamps(const std::string& root, const std::vector<float>& stamps) {
-            const std::string pathTimestamps = StrayCamera::pathOut(root) + "/timestamps.txt";
-            std::ofstream out(pathTimestamps);
+        static std::string writeTimestamps(
+            const std::string& root, 
+            const std::optional<std::string>& out,
+            const std::vector<float>& stamps
+        ) {
+            const std::string pathTimestamps = StrayCamera::pathOut(root, out) + "/timestamps.txt";
+            std::ofstream outStamps(pathTimestamps);
 
-            for(auto i = 0; i < stamps.size(); ++i) out << std::fixed << std::setprecision(6) << stamps[i] << std::endl;
+            for(auto i = 0; i < stamps.size(); ++i) 
+                outStamps << std::fixed << std::setprecision(6) << stamps[i] << std::endl;
 
-            out.close();
+            outStamps.close();
 
             return pathTimestamps;
         }
 
-        static std::tuple<std::string, std::string, float> constructor(const std::string& root) {
+        static std::tuple<std::string, std::string, float> constructor(
+            const std::string& root,
+            const std::optional<std::string>& out
+        ) {
             std::string rootFmt(root);
-            if (!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
+            if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
+
+            std::optional<std::string> outFmt(out);
+            if(outFmt && !(*outFmt).empty() && (*outFmt).back() == '/') (*outFmt).pop_back();
             
-            const std::string temp = StrayCamera::pathOut(rootFmt);
+            const std::string temp = StrayCamera::pathOut(rootFmt, outFmt);
             if(!std::filesystem::exists(temp)) {
                 std::filesystem::create_directories(temp);
-                const unsigned int frameCount = StrayCamera::splitRGBImages(root);
+                const unsigned int frameCount = StrayCamera::splitRGBImages(rootFmt, outFmt);
                 if(frameCount == 0) {
                     UERROR("Failed to generate RGB images.");
                     // TODO: Error handling
                 }
 
-                StrayCamera::copyDepthToOutput(root, frameCount);
+                StrayCamera::copyDepthToOutput(rootFmt, outFmt, frameCount);
             }
 
             return std::tuple<std::string, std::string, float>(
-                StrayCamera::pathRGBImages(root), 
-                StrayCamera::pathDepthImages(root), 
-                StrayCamera::scaleFactor(root)
+                StrayCamera::pathRGBImages(rootFmt, outFmt), 
+                StrayCamera::pathDepthImages(rootFmt, outFmt), 
+                StrayCamera::scaleFactor(rootFmt, outFmt)
             );
         }
     };

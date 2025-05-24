@@ -11,7 +11,7 @@ set(CMAKE_CXX_VERSION_REQUIRED True)
 set(CMAKE_BUILD_TYPE RELEASE)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Qt5 5.15.8 COMPONENTS Widgets)
+find_package(Qt5 COMPONENTS Widgets)
 
 add_subdirectory(rtabmap)
 
@@ -20,6 +20,7 @@ set(moc_srcs ${STRAY_MAPPER_DIR_INC}/MapBuilder.h)
 add_executable(
   StrayMapper 
   ${STRAY_MAPPER_DIR_SRC}/main.cpp
+  ${STRAY_MAPPER_DIR_SRC}/StrayMapper.cpp
   ${moc_srcs})
 target_include_directories(
   StrayMapper PRIVATE 
