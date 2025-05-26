@@ -10,8 +10,8 @@
 #include <rtabmap/core/camera/CameraRGBDImages.h>
 #include <rtabmap/core/Transform.h>
 #include <opencv2/opencv.hpp>
-
 #include "lazycsv.h"
+#include "util/PyScript.h"
 
 namespace rtabmap {
     class CameraRGBDImagesWrapper : public CameraRGBDImages {
@@ -36,8 +36,9 @@ namespace rtabmap {
         StrayCamera(
             const std::string& root, 
             const std::optional<std::string>& out = {}, 
-            const bool removeTemp = true
-        ) : CameraRGBDImagesWrapper(constructor(root, out)) {
+            const bool removeTemp = true,
+            bool upscaleDepth = false
+        ) : CameraRGBDImagesWrapper(constructor(root, out, upscaleDepth)) {
             this->removeTemp_ = removeTemp;
             
             // set stray root path
@@ -110,6 +111,10 @@ namespace rtabmap {
             return StrayCamera::pathOut(root, out) + "/depth";
         }
 
+        static std::string pathDepthImagesUpscaled(const std::string& root, const std::optional<std::string>& out) {
+            return StrayCamera::pathOut(root, out) + "/depth_upscaled";
+        }
+
         static unsigned int queryFrameCount(const std::string& root) {
             cv::VideoCapture cap(root + "/rgb.mp4");
             // TODO: report error
@@ -139,6 +144,31 @@ namespace rtabmap {
             }
         
             return frameCount;
+        }
+
+        static void upscaleDepthImagery(
+            const std::string& root,
+            const std::optional<std::string>& out,
+            bool& upscaleDepth
+        ) {
+            const std::string pathUpscaled = StrayCamera::pathDepthImagesUpscaled(root, out);
+            std::filesystem::create_directories(pathUpscaled);
+            
+            PyScript upscaleDepthScript("upscale_depth");
+            unsigned int failed = upscaleDepthScript.call("main", "sss", 
+                StrayCamera::pathRGBImages(root, out).c_str(),
+                StrayCamera::pathDepthImages(root, out).c_str(),
+                pathUpscaled.c_str()
+            );
+
+            if(failed) {
+                UERROR("Failed to upscale depth imagery using PromptDA:");
+                upscaleDepthScript.printErr();
+
+                UINFO("Proceeding with low-resolution depth imagery.");
+                std::filesystem::remove_all(pathUpscaled);
+                upscaleDepth = false;
+            }
         }
 
         static void copyDepthToOutput(
@@ -324,7 +354,8 @@ namespace rtabmap {
 
         static std::tuple<std::string, std::string, float> constructor(
             const std::string& root,
-            const std::optional<std::string>& out
+            const std::optional<std::string>& out,
+            bool& upscaleDepth
         ) {
             std::string rootFmt(root);
             if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
@@ -335,19 +366,31 @@ namespace rtabmap {
             const std::string temp = StrayCamera::pathOut(rootFmt, outFmt);
             if(!std::filesystem::exists(temp)) {
                 std::filesystem::create_directories(temp);
-                const unsigned int frameCount = StrayCamera::splitRGBImages(rootFmt, outFmt);
-                if(frameCount == 0) {
-                    UERROR("Failed to generate RGB images.");
-                    // TODO: Error handling
-                }
 
+                const unsigned int frameCount = StrayCamera::splitRGBImages(rootFmt, outFmt);
+                // this is a nice trick to allow logging before the error condition
+                for(; frameCount == 0; assert(frameCount != 0)) {
+                    UERROR("Stray data contained invalid RGB imagery.");
+                }
+                
                 StrayCamera::copyDepthToOutput(rootFmt, outFmt, frameCount);
+                if(upscaleDepth) StrayCamera::upscaleDepthImagery(rootFmt, outFmt, upscaleDepth);
+            } else if(upscaleDepth && !std::filesystem::exists(StrayCamera::pathDepthImagesUpscaled(rootFmt, outFmt))){
+                // the --upscale flag is the only flag that causes a change
+                // in the /temp folder
+                // as such, it is the only thing that can get out of sync between temp runs
+                // depending on which flags are set
+                StrayCamera::upscaleDepthImagery(rootFmt, outFmt, upscaleDepth);
             }
 
+            // at this point, upscaleDepth is set false if PromptDA failed,
+            // so we can use it to adjust the parameters to CameraRGBDImages
             return std::tuple<std::string, std::string, float>(
                 StrayCamera::pathRGBImages(rootFmt, outFmt), 
-                StrayCamera::pathDepthImages(rootFmt, outFmt), 
-                StrayCamera::scaleFactor(rootFmt, outFmt)
+                upscaleDepth 
+                    ? StrayCamera::pathDepthImagesUpscaled(rootFmt, outFmt) 
+                    : StrayCamera::pathDepthImages(rootFmt, outFmt), 
+                upscaleDepth ? 1.f : StrayCamera::scaleFactor(rootFmt, outFmt)
             );
         }
     };

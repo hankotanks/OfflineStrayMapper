@@ -1,2 +1,4 @@
 .cache/
 build/
+scripts/__pycache__
+env/

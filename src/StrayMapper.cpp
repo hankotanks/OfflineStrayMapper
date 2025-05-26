@@ -7,34 +7,41 @@
 #include <pcl/io/pcd_io.h>
 #include <QApplication>
 #include <rtabmap/core/Rtabmap.h>
+#include <rtabmap/utilite/ULogger.h>
 #include <rtabmap/utilite/UThread.h>
 #include <rtabmap/core/Odometry.h>
 #include "clipp.h"
 #include "MapBuilder.h"
 #include "StrayCamera.h"
 
-StrayMapper::StrayMapper(int argc, char* argv[]) {
+StrayMapper::StrayMapper(int argc, char* argv[]) : appName_(std::string(argv[0])) {
     std::string outPathRaw;
     auto cli = (
-        clipp::value("input file", this->dataPath_),
-        clipp::option("--display").set(this->showUI_).doc("show a 3D scene visualization"),
-        clipp::option("-o", "--out").doc("specify output directory") & clipp::value("output path", outPathRaw),
-        clipp::option("--save-pts").set(this->savePointCloud_) & clipp::value("voxel size", this->voxelSize_),
-        clipp::option("--keep-tmp").set(this->keepTempFiles_).doc("preserve temp files (speeds up next run)")
+        clipp::value("input folder", dataPath_),
+		clipp::option("-o", "--out").doc("specifies output directory\nif not set, outputs to input folder") & 
+			clipp::value("path", outPathRaw),
+		clipp::option("--preserve").set(keepTempFiles_).doc("preserve temp files (speeds up next run)"),
+		clipp::option("--pcd").set(savePointCloud_).doc("save unified point cloud to output folder"),
+		clipp::option("-u", "--upscale").set(upscaleDepth_).doc("upscale depth imagery with PromptDA"),
+        clipp::option("-v", "--visualize").set(showUI_).doc("show a 3D scene visualization"),
+		clipp::option("--info").set(showInfo_).doc("log info to stdout")
     );
 
-    if(!(clipp::parse(argc, argv, cli))) std::cout << clipp::make_man_page(cli, argv[0]);
+    if(!(clipp::parse(argc, argv, cli))) {
+		std::cout << clipp::make_man_page(cli, argv[0]);
+	}
 
-    this->outPath_ = outPathRaw.empty() ? std::nullopt : std::optional(outPathRaw);
-
-    assert(std::filesystem::exists(dataPath));
+    outPath_ = outPathRaw.empty() ? std::nullopt : std::optional(outPathRaw);
 }
 
-void StrayMapper::run(int argc, char* argv[]) {
-    ULogger::setType(ULogger::kTypeConsole);
-	ULogger::setLevel(ULogger::kError);
+static int STRAY_MAPPER_QAPPLICATION_ARGC = 1;
 
-	StrayMapper cfg(argc, argv);
+unsigned int StrayMapper::run() const {
+    ULogger::setType(ULogger::kTypeConsole);
+	ULogger::setLevel(showInfo_ ? ULogger::kInfo : ULogger::kError);
+
+	UINFO("Checking provided paths.");
+	if(StrayMapper::validate()) return 1;
 
     pcl::PointCloud<pcl::PointXYZRGB> cloudTemp;
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudTemp.makeShared();
@@ -44,11 +51,9 @@ void StrayMapper::run(int argc, char* argv[]) {
 	params.insert(ParametersPair(Parameters::kOdomGuessMotion(), "true"));
 	params.insert(ParametersPair(Parameters::kOdomStrategy(), "0"));
 
-	std::cout << "Preparing data" << std::endl;
-	
-	StrayCamera camera(cfg.dataPath_, cfg.outPath_, !(cfg.keepTempFiles_));
-
-	std::cout << "Finished preparing data" << std::endl;
+	UINFO("Processing Stray data.");
+	StrayCamera camera(dataPath_, outPath_, !(keepTempFiles_), upscaleDepth_);
+	UINFO("Finished processing Stray data.");
 
 	if(camera.init()) {
 		Odometry* odom = Odometry::create();
@@ -57,30 +62,31 @@ void StrayMapper::run(int argc, char* argv[]) {
 		Rtabmap rtabmap;
 		rtabmap.init(params);
 
-		QApplication app(argc, argv);
+		char* appName = (char*) appName_.c_str();
+		QApplication app(STRAY_MAPPER_QAPPLICATION_ARGC, &appName);
 		MapBuilder mapBuilder;
-		if(cfg.showUI_) {
+		if(showUI_) {
 			mapBuilder.show();
 			QApplication::processEvents();
 		}
 
-		std::cout << "Starting SLAM" << std::endl;
+		UINFO("Starting SLAM, processing frames.");
 
 		SensorData cameraData = camera.takeImage();
 		int cameraIteration = 0, cameraInterval = camera.getFrameCount() / 20;
 		int odometryIteration = 0;
-		while(cameraData.isValid() && ((cfg.showUI_ && mapBuilder.isVisible()) || !(cfg.showUI_))) {
+		while(cameraData.isValid() && ((showUI_ && mapBuilder.isVisible()) || !(showUI_))) {
 			if(++cameraIteration < camera.getFrameCount()) {
 				Transform pose = odom->process(cameraData, &info);
 
 				if(rtabmap.process(cameraData, pose)) {
-					if(cfg.showUI_) mapBuilder.processStatistics(rtabmap.getStatistics());
+					if(showUI_) mapBuilder.processStatistics(rtabmap.getStatistics());
 					if(rtabmap.getLoopClosureId() > 0) printf("Loop closure detected!\n");
 				}
 
-				if(cfg.showUI_) mapBuilder.processOdometry(cameraData, pose, info);
+				if(showUI_) mapBuilder.processOdometry(cameraData, pose, info);
 
-				if(cfg.savePointCloud_) {
+				if(savePointCloud_) {
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp = \
 						util3d::cloudsRGBFromSensorData(cameraData)[0];
 					(*cloud) += *util3d::transformPointCloud(temp, pose);
@@ -88,15 +94,13 @@ void StrayMapper::run(int argc, char* argv[]) {
 
 				if(cameraIteration % cameraInterval == 0) {
 					int completion = (int) ((float) cameraIteration / (float) camera.getFrameCount() * 100.f);
-					std::cout << "[" << std::setfill('0') << std::setw(2) << completion;
-					std::cout << "%] processed " << cameraIteration;
-					std::cout << " out of " << camera.getFrameCount() << " frames." << std::endl;
+					UINFO("[%3d%] processed %d out of %d frames.", completion, cameraIteration, camera.getFrameCount());
 				}
 			}
 
 			cameraData = camera.takeImage();
 
-			if(cfg.showUI_) {
+			if(showUI_) {
 				QApplication::processEvents();
 				while(mapBuilder.isPaused() && mapBuilder.isVisible()) {
 					uSleep(100);
@@ -105,25 +109,42 @@ void StrayMapper::run(int argc, char* argv[]) {
 			}
 		}
 
-		std::cout << "Completed SLAM" << std::endl;
+		UINFO("Completed processing frames.");
 
 		delete odom;
 
-		if(cfg.showUI_ && mapBuilder.isVisible()) app.exec();
+		if(showUI_ && mapBuilder.isVisible()) app.exec();
 
 	} else UERROR("Camera init failed!");
 
-	if(cfg.savePointCloud_) {
-		util3d::voxelize(cloud, cfg.voxelSize_);
-
-		std::string rootFmt(cfg.dataPath_);
+	if(savePointCloud_) {
+		std::string rootFmt(dataPath_);
 		if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
 
-		std::optional<std::string> outFmt(cfg.outPath_);
+		std::optional<std::string> outFmt(outPath_);
 		if(outFmt && !(*outFmt).empty() && (*outFmt).back() == '/') (*outFmt).pop_back();
 		
 		std::string cloudPath = (outFmt ? (*outFmt) : rootFmt) + "/out.pcd";
-
+		// util3d::voxelize(cloud, voxelSize_);
 		pcl::io::savePCDFile(cloudPath, *cloud);
 	}
+
+	return 0;
+}
+
+unsigned int StrayMapper::validate() const {
+	if(dataPath_.empty()) return 1;
+
+	if(!std::filesystem::exists(dataPath_)) {
+		UERROR("Unable to find provided Stray data (%s)", dataPath_.c_str());
+		return 1;
+	}
+
+	PyScript checkCUDAScript("check_cuda_availability");
+	if(checkCUDAScript.call("main", "")) {
+		UERROR("System is not CUDA-compatible.");
+		return 1;
+	}
+
+	return 0;
 }
