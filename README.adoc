@@ -5,6 +5,10 @@
 [source,sh]
 ----
 git submodule update --init --recursive
+python3 -m venv env
+source env/bin/activate
+python3 -m pip install -r PromptDA/requirements.txt
+deactivate
 mkdir build
 cd build
 cmake ..
@@ -12,7 +16,19 @@ make
 ----
 
 .Usage
-[source,sh]
+[source,txt]
 ----
-./build/StrayMapper <path-to-unzipped-stray-data>
+SYNOPSIS
+        ./build/StrayMapper <input folder> [-o <path>] [--preserve] [--pcd] [-u] [-v] [--info]
+
+OPTIONS
+        -o, --out   specifies output directory
+                    if not set, outputs to input folder
+        --preserve  preserve temp files (speeds up next run)
+        --pcd       save unified point cloud to output folder
+        -u, --upscale
+                    upscale depth imagery with PromptDA
+        -v, --visualize
+                    show a 3D scene visualization
+        --info      log info to stdout
 ----
