@@ -384,7 +384,7 @@ namespace rtabmap {
         static std::tuple<std::string, std::string, float> constructor(
             const std::string& root,
             const std::optional<std::string>& out,
-            bool& upscaleDepth, const bool upscaleNoPromptDA
+            bool& upscaleDepth
         ) {
             std::string rootFmt(root);
             if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
