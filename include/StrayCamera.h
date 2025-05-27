@@ -11,7 +11,9 @@
 #include <rtabmap/core/Transform.h>
 #include <opencv2/opencv.hpp>
 #include "lazycsv.h"
+#ifndef UPSCALE_NO_PROMPTDA
 #include "util/PyScript.h"
+#endif
 
 namespace rtabmap {
     class CameraRGBDImagesWrapper : public CameraRGBDImages {
@@ -163,7 +165,7 @@ namespace rtabmap {
             const std::string pathDepth = StrayCamera::pathDepthImages(root, out);
             for(const auto& entry : std::filesystem::directory_iterator(pathDepth)) {
                 if(entry.is_regular_file() && entry.path().extension() == ".png") {
-                    cv::Mat depth = cv::imread(entry.path().string());
+                    cv::Mat depth = cv::imread(entry.path().string(), cv::IMREAD_UNCHANGED);
                     if(depth.empty()) {
                         failed = 1;
                         break;
@@ -172,7 +174,7 @@ namespace rtabmap {
                     cv::Size sizeUpscaled(width, height);
                     cv::Mat depthUpscaled;
                     cv::resize(depth, depthUpscaled, sizeUpscaled);
-                    cv::imwrite(pathUpscaled + entry.path().filename().c_str(), depthUpscaled);
+                    cv::imwrite(pathUpscaled + "/" + entry.path().filename().c_str(), depthUpscaled);
                 }
             }
 
