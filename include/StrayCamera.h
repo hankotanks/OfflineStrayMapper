@@ -154,17 +154,46 @@ namespace rtabmap {
             const std::string pathUpscaled = StrayCamera::pathDepthImagesUpscaled(root, out);
             std::filesystem::create_directories(pathUpscaled);
             
+            unsigned int failed = 0;
+
+            // temporary option as I don't have access to CUDA cores
+            // mimics the results of PromptDA
+#ifdef UPSCALE_NO_PROMPTDA
+            const auto [width, height] = StrayCamera::imageDimensions(root, out);
+            const std::string pathDepth = StrayCamera::pathDepthImages(root, out);
+            for(const auto& entry : std::filesystem::directory_iterator(pathDepth)) {
+                if(entry.is_regular_file() && entry.path().extension() == ".png") {
+                    cv::Mat depth = cv::imread(entry.path().string());
+                    if(depth.empty()) {
+                        failed = 1;
+                        break;
+                    }
+
+                    cv::Size sizeUpscaled(width, height);
+                    cv::Mat depthUpscaled;
+                    cv::resize(depth, depthUpscaled, sizeUpscaled);
+                    cv::imwrite(pathUpscaled + entry.path().filename().c_str(), depthUpscaled);
+                }
+            }
+
+            if(failed) {
+                UERROR("Error reading depth images from \"%s\".", pathDepth.c_str());
+            }
+#else
             PyScript upscaleDepthScript("upscale_depth");
-            unsigned int failed = upscaleDepthScript.call("main", "sss", 
+            failed = upscaleDepthScript.call("main", "sss", 
                 StrayCamera::pathRGBImages(root, out).c_str(),
                 StrayCamera::pathDepthImages(root, out).c_str(),
                 pathUpscaled.c_str()
             );
-
+            
             if(failed) {
                 UERROR("Failed to upscale depth imagery using PromptDA:");
                 upscaleDepthScript.printErr();
+            }
+#endif
 
+            if(failed) {
                 UINFO("Proceeding with low-resolution depth imagery.");
                 std::filesystem::remove_all(pathUpscaled);
                 upscaleDepth = false;
@@ -176,7 +205,7 @@ namespace rtabmap {
             const std::optional<std::string>& out, 
             unsigned int frameCount
         ) {
-            const std::string path = pathDepthImages(root, out);
+            const std::string path = StrayCamera::pathDepthImages(root, out);
             std::filesystem::create_directories(path);
         
             for(auto i = 0; i < frameCount; ++i) {
@@ -355,7 +384,7 @@ namespace rtabmap {
         static std::tuple<std::string, std::string, float> constructor(
             const std::string& root,
             const std::optional<std::string>& out,
-            bool& upscaleDepth
+            bool& upscaleDepth, const bool upscaleNoPromptDA
         ) {
             std::string rootFmt(root);
             if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();

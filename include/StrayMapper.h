@@ -13,6 +13,7 @@ private:
     bool savePointCloud_ = false;
     bool keepTempFiles_ = false;
     bool upscaleDepth_ = false;
+    bool upscaleNoPromptDA_ = true;
     std::optional<std::string> outPath_ = {};
 public:
     StrayMapper(int argc, char* argv[]);

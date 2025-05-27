@@ -140,11 +140,15 @@ unsigned int StrayMapper::validate() const {
 		return 1;
 	}
 
-	PyScript checkCUDAScript("check_cuda_availability");
-	if(checkCUDAScript.call("main", "")) {
-		UERROR("System is not CUDA-compatible.");
-		return 1;
+#ifndef UPSCALE_NO_PROMPTDA
+	if(upscaleDepth_) {
+		PyScript checkCUDAScript("check_cuda_availability");
+		if(checkCUDAScript.call("main", "")) {
+			UERROR("System is not CUDA-compatible.");
+			return 1;
+		}
 	}
+#endif
 
 	return 0;
 }
