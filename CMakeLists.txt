@@ -28,12 +28,18 @@ add_executable(
   ${STRAY_MAPPER_DIR_SRC}/StrayMapper.cpp
   ${STRAY_MAPPER_DIR_SRC}/util/PyScript.cpp
   ${moc_srcs})
+
+if(UPSCALE_NO_PROMPTDA)
+   target_compile_definitions(StrayMapper PRIVATE UPSCALE_NO_PROMPTDA)
+endif()
+
 target_include_directories(
   StrayMapper PRIVATE 
   ${STRAY_MAPPER_DIR_INC} 
   SYSTEM ${STRAY_MAPPER_DIR_RTABMAP}/corelib/include
   SYSTEM ${STRAY_MAPPER_DIR_RTABMAP}/utilite/include
   SYSTEM ${Python3_INCLUDE_DIRS})
+
 target_link_libraries(
   StrayMapper 
   rtabmap::gui
