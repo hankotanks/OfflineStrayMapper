@@ -11,7 +11,7 @@
 #include <rtabmap/core/Transform.h>
 #include <opencv2/opencv.hpp>
 #include "lazycsv.h"
-#ifndef UPSCALE_NO_PROMPTDA
+#ifdef WITH_PROMPT_DA
 #include "util/PyScript.h"
 #endif
 
@@ -93,9 +93,10 @@ namespace rtabmap {
 
         SensorData takeImage() {
             SensorData data = Camera::takeImage();
-
-            IMUEvent event = this->sensorData_[data.id()];
-            data.setIMU(event.getData());
+            if(data.isValid()) {
+                IMUEvent event = this->sensorData_[data.id()];
+                data.setIMU(event.getData());
+            }
 
             return data;
         }
@@ -160,7 +161,7 @@ namespace rtabmap {
 
             // temporary option as I don't have access to CUDA cores
             // mimics the results of PromptDA
-#ifdef UPSCALE_NO_PROMPTDA
+#ifndef WITH_PROMPT_DA
             const auto [width, height] = StrayCamera::imageDimensions(root, out);
             const std::string pathDepth = StrayCamera::pathDepthImages(root, out);
             for(const auto& entry : std::filesystem::directory_iterator(pathDepth)) {

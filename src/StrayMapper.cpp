@@ -5,13 +5,19 @@
 #include <optional>
 #include <filesystem>
 #include <pcl/io/pcd_io.h>
+#ifdef WITH_QT
 #include <QApplication>
+#endif
 #include <rtabmap/core/Rtabmap.h>
+#include <rtabmap/core/OdometryInfo.h>
+#include <rtabmap/core/util3d.h>
 #include <rtabmap/utilite/ULogger.h>
 #include <rtabmap/utilite/UThread.h>
 #include <rtabmap/core/Odometry.h>
 #include "clipp.h"
+#ifdef WITH_QT
 #include "MapBuilder.h"
+#endif
 #include "StrayCamera.h"
 
 StrayMapper::StrayMapper(int argc, char* argv[]) : appName_(std::string(argv[0])) {
@@ -22,8 +28,14 @@ StrayMapper::StrayMapper(int argc, char* argv[]) : appName_(std::string(argv[0])
 			clipp::value("path", outPathRaw),
 		clipp::option("--preserve").set(keepTempFiles_).doc("preserve temp files (speeds up next run)"),
 		clipp::option("--pcd").set(savePointCloud_).doc("save unified point cloud to output folder"),
+#ifdef WITH_PROMPT_DA
 		clipp::option("-u", "--upscale").set(upscaleDepth_).doc("upscale depth imagery with PromptDA"),
+#else
+		clipp::option("-u", "--upscale").set(upscaleDepth_).doc("upscale depth imagery directly (WITH_PROMPT_DA=OFF)"),
+#endif
+#ifdef WITH_QT
         clipp::option("-v", "--visualize").set(showUI_).doc("show a 3D scene visualization"),
+#endif
 		clipp::option("--info").set(showInfo_).doc("log info to stdout")
     );
 
@@ -46,22 +58,23 @@ unsigned int StrayMapper::run() const {
     pcl::PointCloud<pcl::PointXYZRGB> cloudTemp;
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = cloudTemp.makeShared();
 
-	ParametersMap params;
-	params.insert(ParametersPair(Parameters::kMemIncrementalMemory(), "false"));
-	params.insert(ParametersPair(Parameters::kOdomGuessMotion(), "true"));
-	params.insert(ParametersPair(Parameters::kOdomStrategy(), "0"));
+	rtabmap::ParametersMap params;
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kMemIncrementalMemory(), "false"));
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomGuessMotion(), "true"));
+	params.insert(rtabmap::ParametersPair(rtabmap::Parameters::kOdomStrategy(), "0"));
 
 	UINFO("Processing Stray data.");
-	StrayCamera camera(dataPath_, outPath_, !(keepTempFiles_), upscaleDepth_);
+	rtabmap::StrayCamera camera(dataPath_, outPath_, !(keepTempFiles_), upscaleDepth_);
 	UINFO("Finished processing Stray data.");
 
 	if(camera.init()) {
-		Odometry* odom = Odometry::create();
-		OdometryInfo info;
+		rtabmap::Odometry* odom = rtabmap::Odometry::create();
+		rtabmap::OdometryInfo info;
 
-		Rtabmap rtabmap;
+		rtabmap::Rtabmap rtabmap;
 		rtabmap.init(params);
 
+#ifdef WITH_QT
 		char* appName = (char*) appName_.c_str();
 		QApplication app(STRAY_MAPPER_QAPPLICATION_ARGC, &appName);
 		MapBuilder mapBuilder;
@@ -69,27 +82,34 @@ unsigned int StrayMapper::run() const {
 			mapBuilder.show();
 			QApplication::processEvents();
 		}
+#endif
 
 		UINFO("Starting SLAM, processing frames.");
 
-		SensorData cameraData = camera.takeImage();
-		int cameraIteration = 0, cameraInterval = camera.getFrameCount() / 20;
-		int odometryIteration = 0;
+		rtabmap::SensorData cameraData = camera.takeImage();
+		int cameraIteration = 0;
+		int cameraInterval = camera.getFrameCount() / 20;
+#ifdef WITH_QT
 		while(cameraData.isValid() && ((showUI_ && mapBuilder.isVisible()) || !(showUI_))) {
+#else
+		while(cameraData.isValid()) {
+#endif
 			if(++cameraIteration < camera.getFrameCount()) {
-				Transform pose = odom->process(cameraData, &info);
+				rtabmap::Transform pose = odom->process(cameraData, &info);
 
 				if(rtabmap.process(cameraData, pose)) {
+#ifdef WITH_QT
 					if(showUI_) mapBuilder.processStatistics(rtabmap.getStatistics());
+#endif
 					if(rtabmap.getLoopClosureId() > 0) printf("Loop closure detected!\n");
 				}
-
+#ifdef WITH_QT
 				if(showUI_) mapBuilder.processOdometry(cameraData, pose, info);
-
+#endif
 				if(savePointCloud_) {
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp = \
-						util3d::cloudsRGBFromSensorData(cameraData)[0];
-					(*cloud) += *util3d::transformPointCloud(temp, pose);
+						rtabmap::util3d::cloudsRGBFromSensorData(cameraData)[0];
+					(*cloud) += *(rtabmap::util3d::transformPointCloud(temp, pose));
 				}
 
 				if(cameraIteration % cameraInterval == 0) {
@@ -98,8 +118,11 @@ unsigned int StrayMapper::run() const {
 				}
 			}
 
+			cameraData.clearRawData();
+			cameraData.clearCompressedData();
 			cameraData = camera.takeImage();
 
+#ifdef WITH_QT
 			if(showUI_) {
 				QApplication::processEvents();
 				while(mapBuilder.isPaused() && mapBuilder.isVisible()) {
@@ -107,13 +130,19 @@ unsigned int StrayMapper::run() const {
 					QApplication::processEvents();
 				}
 			}
+#endif
 		}
+
+		cameraData.clearRawData();
+		cameraData.clearCompressedData();
 
 		UINFO("Completed processing frames.");
 
 		delete odom;
 
+#ifdef WITH_QT
 		if(showUI_ && mapBuilder.isVisible()) app.exec();
+#endif
 
 	} else UERROR("Camera init failed!");
 
@@ -136,11 +165,11 @@ unsigned int StrayMapper::validate() const {
 	if(dataPath_.empty()) return 1;
 
 	if(!std::filesystem::exists(dataPath_)) {
-		UERROR("Unable to find provided Stray data (%s)", dataPath_.c_str());
+		UERROR("Unable to find provided Stray data (%s).", dataPath_.c_str());
 		return 1;
 	}
 
-#ifndef UPSCALE_NO_PROMPTDA
+#ifdef WITH_PROMPT_DA
 	if(upscaleDepth_) {
 		PyScript checkCUDAScript("check_cuda_availability");
 		if(checkCUDAScript.call("main", "")) {
