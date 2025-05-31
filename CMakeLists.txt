@@ -21,7 +21,7 @@ endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(OpenCV REQUIRED)
-find_package(PCL 1.7 REQUIRED)
+find_package(PCL 1.7 REQUIRED COMPONENTS common io)
 
 add_definitions(${PCL_DEFINITIONS})
 

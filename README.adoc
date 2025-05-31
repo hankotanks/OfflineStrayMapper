@@ -1,12 +1,29 @@
-.Dependencies
-* Qt5
+== OfflineStrayMapper
 
-.Setup
+This project is an implementation of an offline RGBD-SLAM pipeline for use with smartphone LiDAR data.
+SLAM is performed with link:https://github.com/introlab/rtabmap[RTAB-Map], while link:https://github.com/DepthAnything/PromptDA[PromptDA] is used to preprocess depth frames.
+Input data should be exported from the link:https://docs.strayrobots.io[Stray] scanner app.
+
+=== Configuration Options
+`WITH_QT` :: Default `ON`. When disabled, removes the `Qt5` dependency. Should be set to `OFF` on MacOS systems due to a bug in CMake's `FindVTK` module.
+`WITH_PROMPT_DA` :: Default `ON`. Only should be disabled on non-CUDA compatible systems for testing purposes. Substitutes PromptDA upscaling with simple image resizing when `OFF`.
+
+=== Setup
+
+Assumes installation of Unix systems, developed on Ubuntu 16.04 and Debian 12 (Bookworm).
 [source,sh]
 ----
-# from the repository's root folder
+sudo apt-get update
+sudo apt-get install git cmake python3
+sudo apt-get install libsqlite3-dev libpcl-dev libopencv-dev libproj-dev
+# not required if WITH_QT=OFF
+sudo apt-get install libqt5svg5-dev
+# clone the repository
+git clone https://github.com/hankotanks/OfflineStrayMapper.git
+cd OfflineStrayMapper
+# initialize PromptDA and RTAB-Map
 git submodule update --init --recursive
-# if virtual environment is placed elsewhere,
+# if virtual environment is placed elsewhere (or named differently)
 # ${PY_PATH_ENV} must be updated in CMakeFiles.txt
 python3 -m venv env
 source env/bin/activate
@@ -14,16 +31,19 @@ python3 -m pip install -r PromptDA/requirements.txt
 deactivate
 ----
 
-.Building
+=== Building
+
 [source,sh]
 ----
 mkdir build
 cd build
+# optionally: cmake .. -DWITH_QT=OFF -DWITH_PROMPT_DA=OFF
 cmake ..
 make
 ----
 
-.Usage
+=== Usage
+
 [source,txt]
 ----
 SYNOPSIS
@@ -40,3 +60,5 @@ OPTIONS
                     show a 3D scene visualization
         --info      log info to stdout
 ----
+
+If `WITH_QT=OFF`, the `--visualize` flag is not present. If `WITH_PROMPT_DA=OFF`, `--upscale` performs simple image resizing rather than PromptDA upscaling.
