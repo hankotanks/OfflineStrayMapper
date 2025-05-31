@@ -14,7 +14,8 @@ Assumes installation of Unix systems, developed on Ubuntu 16.04 and Debian 12 (B
 [source,sh]
 ----
 sudo apt-get update
-sudo apt-get install git cmake python3
+sudo apt-get install git cmake
+sudo apt-get install python3 python3-pip python3-venv
 sudo apt-get install libsqlite3-dev libpcl-dev libopencv-dev libproj-dev
 # not required if WITH_QT=OFF
 sudo apt-get install libqt5svg5-dev
