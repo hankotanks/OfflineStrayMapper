@@ -48,18 +48,19 @@ make
 [source,txt]
 ----
 SYNOPSIS
-        ./StrayMapper <input folder> [-o <path>] [--preserve] [--pcd] [-u] [-v] [--info]
+        ./build/StrayMapper <input folder> [-o <path>] [--save (pcd|sbf|vtk)] 
+                            [-k] [-u] [-v] [--info]
 
 OPTIONS
         -o, --out   specifies output directory
                     if not set, outputs to input folder
-        --preserve  preserve temp files (speeds up next run)
-        --pcd       save unified point cloud to output folder
+        --save      save unified point cloud in the given format
+        -k, --keep  preserve temp files (speeds up subsequent runs)
         -u, --upscale
-                    upscale depth imagery with PromptDA
+                    upscale depth imagery directly (WITH_PROMPT_DA=OFF)
         -v, --visualize
                     show a 3D scene visualization
-        --info      log info to stdout
+        --info      log additional info to stdout (noisy)
 ----
 
 If `WITH_QT=OFF`, the `--visualize` flag is not present. If `WITH_PROMPT_DA=OFF`, `--upscale` performs simple image resizing rather than PromptDA upscaling.

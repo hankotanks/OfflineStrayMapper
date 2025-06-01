@@ -10,7 +10,9 @@ private:
     std::string dataPath_;
     bool showInfo_ = false;
     bool showUI_ = false;
-    bool savePointCloud_ = false;
+    bool savePCD_ = false;
+    bool saveSBF_ = false;
+    bool saveVTK_ = false;
     bool keepTempFiles_ = false;
     bool upscaleDepth_ = false;
     bool upscaleNoPromptDA_ = true;
@@ -30,10 +32,16 @@ private:
     StrayMapper(
         std::string dataPath,
         bool showUI, 
-        bool savePointCloud,
+        bool savePCD,
+        bool saveSBF,
+        bool saveVTK,
         bool keepTempFiles,
         std::optional<std::string> outPath = {}
-    ) : dataPath_(dataPath), showUI_(showUI), savePointCloud_(savePointCloud), keepTempFiles_(keepTempFiles), outPath_(outPath) { /*  */ }
+    ) : dataPath_(dataPath), 
+        showUI_(showUI), 
+        savePCD_(savePCD), saveSBF_(saveSBF), saveVTK_(saveVTK), 
+        keepTempFiles_(keepTempFiles), 
+        outPath_(outPath) { /*  */ }
     // validate the StrayMapper instance before running
     unsigned int validate() const;
 };

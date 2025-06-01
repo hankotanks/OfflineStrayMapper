@@ -4,7 +4,9 @@
 #include <iostream>
 #include <optional>
 #include <filesystem>
+#include <pcl/PCLPointCloud2.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/io/vtk_io.h>
 #ifdef WITH_QT
 #include <QApplication>
 #endif
@@ -22,12 +24,16 @@
 
 StrayMapper::StrayMapper(int argc, char* argv[]) : appName_(std::string(argv[0])) {
     std::string outPathRaw;
+	std::string outCloudFormat = "";
     auto cli = (
         clipp::value("input folder", dataPath_),
 		clipp::option("-o", "--out").doc("specifies output directory\nif not set, outputs to input folder") & 
 			clipp::value("path", outPathRaw),
-		clipp::option("--preserve").set(keepTempFiles_).doc("preserve temp files (speeds up next run)"),
-		clipp::option("--pcd").set(savePointCloud_).doc("save unified point cloud to output folder"),
+		clipp::option("-k", "--keep").set(keepTempFiles_).doc("preserve temp files (speeds up subsequent runs)"),
+		clipp::option("--save").doc("save unified point cloud in the given format") & (
+			clipp::required("pcd").set(savePCD_) | 
+			clipp::required("sbf").set(saveSBF_) | 
+			clipp::required("vtk").set(saveVTK_) ),
 #ifdef WITH_PROMPT_DA
 		clipp::option("-u", "--upscale").set(upscaleDepth_).doc("upscale depth imagery with PromptDA"),
 #else
@@ -36,7 +42,7 @@ StrayMapper::StrayMapper(int argc, char* argv[]) : appName_(std::string(argv[0])
 #ifdef WITH_QT
         clipp::option("-v", "--visualize").set(showUI_).doc("show a 3D scene visualization"),
 #endif
-		clipp::option("--info").set(showInfo_).doc("log info to stdout")
+		clipp::option("--info").set(showInfo_).doc("log additional info to stdout (noisy)")
     );
 
     if(!(clipp::parse(argc, argv, cli))) {
@@ -106,7 +112,7 @@ unsigned int StrayMapper::run() const {
 #ifdef WITH_QT
 				if(showUI_) mapBuilder.processOdometry(cameraData, pose, info);
 #endif
-				if(savePointCloud_) {
+				if(savePCD_ || saveSBF_ || saveVTK_) {
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp = \
 						rtabmap::util3d::cloudsRGBFromSensorData(cameraData)[0];
 					(*cloud) += *(rtabmap::util3d::transformPointCloud(temp, pose));
@@ -146,16 +152,64 @@ unsigned int StrayMapper::run() const {
 
 	} else UERROR("Camera init failed!");
 
-	if(savePointCloud_) {
-		std::string rootFmt(dataPath_);
-		if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
+	std::string rootFmt(dataPath_);
+	if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
 
-		std::optional<std::string> outFmt(outPath_);
-		if(outFmt && !(*outFmt).empty() && (*outFmt).back() == '/') (*outFmt).pop_back();
+	std::optional<std::string> outFmt(outPath_);
+	if(outFmt && !(*outFmt).empty() && (*outFmt).back() == '/') (*outFmt).pop_back();
+	std::string cloudPath = (outFmt ? (*outFmt) : rootFmt) + "/out";
+	if(savePCD_) {
+		pcl::io::savePCDFile(cloudPath + ".pcd", *cloud);
+	} else if(saveVTK_) {
+		pcl::PCLPointCloud2 cloudVTKTemp;
+		pcl::PCLPointCloud2::Ptr cloudVTK(&cloudVTKTemp);
+		pcl::toPCLPointCloud2(*cloud, *cloudVTK);
+		pcl::io::saveVTKFile(cloudPath + ".vtk", *cloudVTK);
+	} else if(saveSBF_) {
+		std::ofstream file(cloudPath + ".sbf", std::ios::binary);
+
+		if(!file.is_open()) {
+			UERROR("Failed to write SLAM result to %s.", (cloudPath + ".sbf").c_str());
+			return 1;
+		}
+
+		char head[2] = {42, 42};
+		file.write(head, 2);
+		// 2
+		uint64_t pt_count = static_cast<uint64_t>(cloud->size());
+		file.write(reinterpret_cast<const char*>(&pt_count), sizeof(uint64_t));
+		uint16_t sf_count = 3;
+		file.write(reinterpret_cast<const char*>(&sf_count), sizeof(uint16_t));
+		// 12
+		double pt_shift = 0.0;
+		file.write(reinterpret_cast<const char*>(&pt_shift), sizeof(double));
+		file.write(reinterpret_cast<const char*>(&pt_shift), sizeof(double));
+		file.write(reinterpret_cast<const char*>(&pt_shift), sizeof(double));
+		// 12 + 24 = 36
+		char pad[28] = {0};
+		file.write(pad, 28);
+		// 36 + 28 = 64
+		float r, g, b;
+		for (const auto& pt : cloud->points) {
+			file.write(reinterpret_cast<const char*>(&(pt.x)), sizeof(float));
+			file.write(reinterpret_cast<const char*>(&(pt.y)), sizeof(float));
+			file.write(reinterpret_cast<const char*>(&(pt.z)), sizeof(float));
+			r = ((float) pt.r) / 255.f;
+			g = ((float) pt.g) / 255.f;
+			b = ((float) pt.b) / 255.f;
+			file.write(reinterpret_cast<const char*>(&r), sizeof(float));
+			file.write(reinterpret_cast<const char*>(&g), sizeof(float));
+			file.write(reinterpret_cast<const char*>(&b), sizeof(float));
+		}
+
+		file.close();
 		
-		std::string cloudPath = (outFmt ? (*outFmt) : rootFmt) + "/out.pcd";
-		// util3d::voxelize(cloud, voxelSize_);
-		pcl::io::savePCDFile(cloudPath, *cloud);
+		// file = std::ofstream(cloudPath + ".sbf");
+		// file << "[SBF]" << std::endl;
+		// file << "Points=" << pt_count << std::endl;
+		// file << "GlobalShift=0.0, 0.0, 0.0" << std::endl;
+		// file << "SFCount=0" << std::endl;
+		// file.close();
 	}
 
 	return 0;
