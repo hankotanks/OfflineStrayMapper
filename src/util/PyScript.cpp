@@ -73,11 +73,14 @@ unsigned int PyScript::call(const char* name, const char* format, ...) {
         PyObject* pyResult = PyObject_CallMethod(module_, name, format, args);
         va_end(args);
 
-        if(pyResult == NULL) {
-            errOnLastCall_ = true;
-            return 1;
-        } else Py_DECREF(pyResult);
-
+        if(pyResult != NULL) {
+            if(PyObject_IsTrue(pyResult)) { 
+                Py_DECREF(pyResult);
+                errOnLastCall_ = true;
+                return 1;
+            }
+            Py_DECREF(pyResult);
+        }
     } else {
         errOnLastCall_ = true;
         return 1;

@@ -30,7 +30,7 @@ def main(path_color: str, path_depth: str, path_out: str):
     depth = parallel_execution(files_depth, to_tensor=True, action=load_depth, num_processes=32, print_progress=True, desc='Loading depth data')
 
     results = []
-    DEVICE = 'cuda'
+    DEVICE = 'cpu'
     model = PromptDA.from_pretrained("depth-anything/prompt-depth-anything-vitl").to(DEVICE).eval()
     for frame_idx, (curr_color, curr_depth) in tqdm(enumerate(zip(color, depth)), desc='Inferring', total=len(color)):
         curr_color, curr_depth = curr_color.to(DEVICE), curr_depth.to(DEVICE)

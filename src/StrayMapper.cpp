@@ -223,7 +223,8 @@ unsigned int StrayMapper::validate() const {
 		return 1;
 	}
 
-#ifdef WITH_PROMPT_DA
+// #ifdef WITH_PROMPT_DA
+#if 0
 	if(upscaleDepth_) {
 		PyScript checkCUDAScript("check_cuda_availability");
 		if(checkCUDAScript.call("main", "")) {
