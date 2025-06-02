@@ -184,11 +184,7 @@ namespace rtabmap {
             }
 #else
             PyScript upscaleDepthScript("upscale_depth");
-            failed = upscaleDepthScript.call("main", "sss", 
-                StrayCamera::pathRGBImages(root, out).c_str(),
-                StrayCamera::pathDepthImages(root, out).c_str(),
-                pathUpscaled.c_str()
-            );
+            failed = upscaleDepthScript.call("main", "ss", StrayCamera::pathOut(root, out).c_str(), StrayCamera::pathOut(root, out).c_str());
             
             if(failed) {
                 UERROR("Failed to upscale depth imagery using PromptDA:");
