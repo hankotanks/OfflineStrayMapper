@@ -11,7 +11,6 @@ private:
     bool showInfo_ = false;
     bool showUI_ = false;
     bool savePCD_ = false;
-    bool saveSBF_ = false;
     bool saveVTK_ = false;
     bool keepTempFiles_ = false;
     bool upscaleDepth_ = false;
@@ -33,13 +32,12 @@ private:
         std::string dataPath,
         bool showUI, 
         bool savePCD,
-        bool saveSBF,
         bool saveVTK,
         bool keepTempFiles,
         std::optional<std::string> outPath = {}
     ) : dataPath_(dataPath), 
         showUI_(showUI), 
-        savePCD_(savePCD), saveSBF_(saveSBF), saveVTK_(saveVTK), 
+        savePCD_(savePCD), saveVTK_(saveVTK), 
         keepTempFiles_(keepTempFiles), 
         outPath_(outPath) { /*  */ }
     // validate the StrayMapper instance before running
