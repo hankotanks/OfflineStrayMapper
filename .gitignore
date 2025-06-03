@@ -1,4 +1,5 @@
 .cache/
 build/
 scripts/__pycache__
+scripts/util/__pycache__
 env/
