@@ -34,4 +34,4 @@ if __name__ == "__main__":
         print("Usage: python clustering.py <path_to_vtk_or_pcd> <min_samples>")
         sys.exit(1)    
 
-    process_point_cloud(sys.argv[1], int(sys.argv[2]))
+    cluster_point_cloud(sys.argv[1], int(sys.argv[2]))
