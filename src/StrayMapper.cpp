@@ -1,7 +1,10 @@
 #include "StrayMapper.h"
+#include "rtabmap/core/Transform.h"
 #include <cassert>
 #include <cstring>
+#include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <optional>
 #include <filesystem>
 #include <pcl/PCLPointCloud2.h>
@@ -72,7 +75,16 @@ unsigned int StrayMapper::run() const {
 	rtabmap::StrayCamera camera(dataPath_, outPath_, !(keepTempFiles_), upscaleDepth_);
 	UINFO("Finished processing Stray data.");
 
+	std::string rootFmt(dataPath_);
+	if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
+
+	std::optional<std::string> outFmt(outPath_);
+	if(outFmt && !(*outFmt).empty() && (*outFmt).back() == '/') (*outFmt).pop_back();
+	std::string outPath = (outFmt ? (*outFmt) : rootFmt);
+
 	if(camera.init()) {
+		std::vector<std::pair<double, rtabmap::Transform>> poses;
+
 		rtabmap::Odometry* odom = rtabmap::Odometry::create();
 		rtabmap::OdometryInfo info;
 
@@ -115,12 +127,14 @@ unsigned int StrayMapper::run() const {
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp = \
 						rtabmap::util3d::cloudsRGBFromSensorData(cameraData)[0];
 					(*cloud) += *(rtabmap::util3d::transformPointCloud(temp, pose));
-				}
+				}Resolved
 
 				if(cameraIteration % cameraInterval == 0) {
 					int completion = (int) ((float) cameraIteration / (float) camera.getFrameCount() * 100.f);
 					UINFO("[%3d%] processed %d out of %d frames.", completion, cameraIteration, camera.getFrameCount());
 				}
+
+				poses.push_back(std::make_pair(cameraData.stamp(), odom->getPose()));
 			}
 
 			cameraData.clearRawData();
@@ -149,21 +163,41 @@ unsigned int StrayMapper::run() const {
 		if(showUI_ && mapBuilder.isVisible()) app.exec();
 #endif
 
+		// save odometry
+		UINFO("Saving odometry (%s).", (outPath + "/poses.csv").c_str());
+
+		std::ofstream poseFile(outPath + "/poses.csv");
+		poseFile << "timestamp, frame, x, y, z, qx, qy, qz, qw" << std::endl;
+		
+		size_t poseIdx = 0;
+		for(const auto& [stamp, pose] : poses) {
+			auto t = pose.translation();
+			auto q = pose.getQuaterniond();
+			poseFile << std::setprecision(8) << std::fixed << stamp << ", ";
+			poseFile << std::setfill('0') << std::setw(6) << poseIdx << ", ";
+			poseFile << std::setprecision(9) << std::fixed << t.x() << ", ";
+			poseFile << std::setprecision(9) << std::fixed << t.y() << ", ";
+			poseFile << std::setprecision(9) << std::fixed << t.z() << ", ";
+			poseFile << std::setprecision(9) << std::fixed << q.x() << ", ";
+			poseFile << std::setprecision(9) << std::fixed << q.y() << ", ";
+			poseFile << std::setprecision(9) << std::fixed << q.z() << ", ";
+			poseFile << std::setprecision(9) << std::fixed << q.w() << ", " << std::endl;
+			poseIdx++;
+		}
+
+		poseFile.close();
+
+		UINFO("Finished saving odometry.");
+
 	} else UERROR("Camera init failed!");
 
-	std::string rootFmt(dataPath_);
-	if(!rootFmt.empty() && rootFmt.back() == '/') rootFmt.pop_back();
-
-	std::optional<std::string> outFmt(outPath_);
-	if(outFmt && !(*outFmt).empty() && (*outFmt).back() == '/') (*outFmt).pop_back();
-	std::string cloudPath = (outFmt ? (*outFmt) : rootFmt) + "/out";
 	if(savePCD_) {
-		pcl::io::savePCDFileBinary(cloudPath + ".pcd", *cloud);
+		pcl::io::savePCDFileBinary(outPath + "/out.pcd", *cloud);
 	} else if(saveVTK_) {
 		pcl::PCLPointCloud2 cloudVTKTemp;
 		pcl::PCLPointCloud2::Ptr cloudVTK(&cloudVTKTemp);
 		pcl::toPCLPointCloud2(*cloud, *cloudVTK);
-		pcl::io::saveVTKFile(cloudPath + ".vtk", *cloudVTK);
+		pcl::io::saveVTKFile(outPath + "/out.vtk", *cloudVTK);
 	}
 
 	return 0;
