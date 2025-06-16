@@ -21,8 +21,7 @@ endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 find_package(OpenCV REQUIRED)
-find_package(PCL 1.7 REQUIRED COMPONENTS common io)
-
+find_package(PCL 1.7 REQUIRED COMPONENTS common io kdtree search features surface visualization)
 add_definitions(${PCL_DEFINITIONS})
 
 add_subdirectory(rtabmap)
@@ -37,7 +36,7 @@ if(WITH_QT)
   )
   target_compile_definitions(StrayMapper PRIVATE WITH_QT)
 else()
-add_executable(
+  add_executable(
     StrayMapper 
     ${STRAY_MAPPER_DIR_SRC}/main.cpp
     ${STRAY_MAPPER_DIR_SRC}/StrayMapper.cpp
@@ -89,3 +88,19 @@ else()
     ${PCL_LIBRARIES}
   )
 endif()
+
+add_executable(
+  Triangulation
+  ${STRAY_MAPPER_DIR_SRC}/Triangulation.cpp
+)
+
+target_include_directories(
+  Triangulation PRIVATE 
+  ${STRAY_MAPPER_DIR_INC} 
+  SYSTEM ${PCL_INCLUDE_DIRS}
+)
+
+target_link_libraries(
+  Triangulation
+  ${PCL_LIBRARIES}
+)
