@@ -127,7 +127,7 @@ unsigned int StrayMapper::run() const {
 					pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp = \
 						rtabmap::util3d::cloudsRGBFromSensorData(cameraData)[0];
 					(*cloud) += *(rtabmap::util3d::transformPointCloud(temp, pose));
-				}Resolved
+				}
 
 				if(cameraIteration % cameraInterval == 0) {
 					int completion = (int) ((float) cameraIteration / (float) camera.getFrameCount() * 100.f);
