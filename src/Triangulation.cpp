@@ -1,9 +1,9 @@
-#include <iostream>
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/search/kdtree.h> // for KdTree
 #include <pcl/features/normal_3d.h>
 #include <pcl/surface/gp3.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 int main(int argc, char* argv[]) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -54,7 +54,22 @@ int main(int argc, char* argv[]) {
   std::vector<int> parts = gp3.getPartIDs();
   std::vector<int> states = gp3.getPointStates();
 
-  // Finish
-  std::cout << "Hello, world!" << std::endl;
+  pcl::visualization::PCLVisualizer viewer("3D Viewer");
+
+  // Add the mesh to the viewer
+  viewer.addPolygonMesh(triangles, "mesh");
+
+  // Set the background color
+  viewer.setBackgroundColor(0.0, 0.0, 0.0); // Black background
+
+  // Set the viewer properties
+  viewer.setRepresentationToSurfaceForAllActors(); // Set surface representation
+  viewer.addCoordinateSystem(1.0); // Add a coordinate system
+
+  // Start the visualization loop
+  while (!viewer.wasStopped()) {
+      viewer.spinOnce(100); // Spin the viewer
+  }
+
   return (0);
 }
